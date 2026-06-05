@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'dart:convert';
+import 'package:intl/intl.dart';
 import 'package:monsys_mobile/core/auth/auth_storage.dart';
 import 'package:monsys_mobile/services/api/api_service.dart';
 import 'package:monsys_mobile/core/constants/api_constants.dart';
+import 'package:monsys_mobile/shared/widgets/widgets.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -17,11 +20,26 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   Map<String, dynamic>? _dashboardData;
   bool _isLoading = true;
   String? _errorMessage;
+  String _userName = '';
 
   @override
   void initState() {
     super.initState();
+    _loadUserName();
     _loadDashboardData();
+  }
+
+  Future<void> _loadUserName() async {
+    final authStorage = ref.read(authStorageProvider);
+    final userJson = await authStorage.getUser();
+    if (userJson != null) {
+      try {
+        final user = jsonDecode(userJson);
+        setState(() {
+          _userName = user['name'] ?? user['email'] ?? '';
+        });
+      } catch (_) {}
+    }
   }
 
   Future<void> _loadDashboardData() async {
@@ -36,7 +54,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
       if (response.statusCode == 200) {
         setState(() {
-          // Laravel API wraps response in 'data' field
           final responseData = response.data;
           _dashboardData = responseData['data'] ?? responseData;
           _isLoading = false;
@@ -56,22 +73,41 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Future<void> _logout() async {
-    try {
-      final apiService = ref.read(apiServiceProvider);
-      final authStorage = ref.read(authStorageProvider);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
 
-      await apiService.post(ApiConstants.logout);
-      await authStorage.clearAll();
+    if (confirmed == true) {
+      try {
+        final apiService = ref.read(apiServiceProvider);
+        final authStorage = ref.read(authStorageProvider);
 
-      if (mounted) {
-        context.go('/login');
-      }
-    } catch (e) {
-      // Even if logout API fails, clear local data
-      final authStorage = ref.read(authStorageProvider);
-      await authStorage.clearAll();
-      if (mounted) {
-        context.go('/login');
+        await apiService.post(ApiConstants.logout);
+        await authStorage.clearAll();
+
+        if (mounted) {
+          context.go('/login');
+        }
+      } catch (e) {
+        final authStorage = ref.read(authStorageProvider);
+        await authStorage.clearAll();
+        if (mounted) {
+          context.go('/login');
+        }
       }
     }
   }
@@ -80,7 +116,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     // Navigate to the corresponding screen
     switch (index) {
       case 0:
-        // Dashboard - stay on current screen
         setState(() {
           _selectedIndex = 0;
         });
@@ -99,8 +134,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Dashboard'),
@@ -117,87 +150,50 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.error_outline,
-                        size: 64,
-                        color: colorScheme.error,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        _errorMessage!,
-                        style: TextStyle(color: colorScheme.error),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton.icon(
-                        onPressed: _loadDashboardData,
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                )
-              : _buildBody(),
+      body: _buildBody(),
       bottomNavigationBar: BottomNavigationBar(
         items: <BottomNavigationBarItem>[
           BottomNavigationBarItem(
-            icon: Icon(Icons.dashboard, color: colorScheme.onSurfaceVariant),
-            activeIcon: Icon(Icons.dashboard, color: colorScheme.onPrimary),
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
             label: 'Dashboard',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.inventory, color: colorScheme.onSurfaceVariant),
-            activeIcon: Icon(Icons.inventory, color: colorScheme.onPrimary),
+            icon: Icon(Icons.inventory_outlined),
+            activeIcon: Icon(Icons.inventory),
             label: 'Stock',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.local_shipping, color: colorScheme.onSurfaceVariant),
-            activeIcon: Icon(Icons.local_shipping, color: colorScheme.onPrimary),
+            icon: Icon(Icons.local_shipping_outlined),
+            activeIcon: Icon(Icons.local_shipping),
             label: 'Delivery',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.bar_chart, color: colorScheme.onSurfaceVariant),
-            activeIcon: Icon(Icons.bar_chart, color: colorScheme.onPrimary),
+            icon: Icon(Icons.bar_chart_outlined),
+            activeIcon: Icon(Icons.bar_chart),
             label: 'Reports',
           ),
         ],
         currentIndex: _selectedIndex,
-        selectedItemColor: colorScheme.primary,
-        unselectedItemColor: colorScheme.onSurfaceVariant,
-        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: colorScheme.surface,
-        elevation: 8,
         onTap: _onItemTapped,
       ),
     );
   }
 
   Widget _buildBody() {
-    switch (_selectedIndex) {
-      case 0:
-        return _buildDashboardTab();
-      case 1:
-        return const Center(child: Text('Stock Management'));
-      case 2:
-        return const Center(child: Text('Delivery Orders'));
-      case 3:
-        return const Center(child: Text('Reports'));
-      default:
-        return const Center(child: Text('Dashboard'));
+    if (_isLoading) {
+      return _buildSkeletonLoading();
     }
-  }
 
-  Widget _buildDashboardTab() {
+    if (_errorMessage != null) {
+      return AppErrorState(
+        message: _errorMessage!,
+        onRetry: _loadDashboardData,
+      );
+    }
+
     if (_dashboardData == null) {
-      return const Center(child: Text('No data available'));
+      return const AppEmptyState(message: 'No data available');
     }
 
     return RefreshIndicator(
@@ -208,27 +204,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Welcome card
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Welcome back!',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Here\'s what\'s happening with your business today.',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
+            // Welcome card with personalized greeting
+            _buildWelcomeCard(),
+            const SizedBox(height: 20),
 
             // Stats grid
             GridView.count(
@@ -237,31 +215,78 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               crossAxisCount: 2,
               crossAxisSpacing: 12,
               mainAxisSpacing: 12,
-              childAspectRatio: 1.5,
+              childAspectRatio: 1.4,
               children: [
-                _buildStatCard(
-                  'Total Sales',
-                  'Rp ${_dashboardData?['total_sales'] ?? '0'}',
-                  Icons.shopping_cart,
-                  Colors.green,
+                StatCard(
+                  title: 'Total Sales',
+                  value: 'Rp ${_formatNumber(_dashboardData?['total_sales'])}',
+                  icon: Icons.shopping_cart,
+                  color: Colors.green,
+                  trend: '+12% vs last month',
+                  isPositive: true,
                 ),
-                _buildStatCard(
-                  'Orders',
-                  '${_dashboardData?['total_orders'] ?? '0'}',
-                  Icons.receipt_long,
-                  Colors.blue,
+                StatCard(
+                  title: 'Orders',
+                  value: '${_dashboardData?['total_orders'] ?? '0'}',
+                  icon: Icons.receipt_long,
+                  color: Colors.blue,
+                  trend: '+5% vs last month',
+                  isPositive: true,
                 ),
-                _buildStatCard(
-                  'Stock Items',
-                  '${_dashboardData?['stock_items'] ?? '0'}',
-                  Icons.inventory_2,
-                  Colors.orange,
+                StatCard(
+                  title: 'Stock Items',
+                  value: '${_dashboardData?['stock_items'] ?? '0'}',
+                  icon: Icons.inventory_2,
+                  color: Colors.orange,
                 ),
-                _buildStatCard(
-                  'Pending',
-                  '${_dashboardData?['pending_orders'] ?? '0'}',
-                  Icons.pending_actions,
-                  Colors.red,
+                StatCard(
+                  title: 'Pending',
+                  value: '${_dashboardData?['pending_orders'] ?? '0'}',
+                  icon: Icons.pending_actions,
+                  color: Colors.red,
+                  trend: _dashboardData?['pending_orders'] != null && _dashboardData!['pending_orders'] > 0
+                      ? 'Needs attention'
+                      : null,
+                  isPositive: (_dashboardData?['pending_orders'] ?? 0) == 0,
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+            // Quick actions
+            Text(
+              'Quick Actions',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildActionCard(
+                    icon: Icons.inventory,
+                    label: 'Stock',
+                    color: Colors.blue,
+                    onTap: () => context.push('/stock'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildActionCard(
+                    icon: Icons.local_shipping,
+                    label: 'Delivery',
+                    color: Colors.purple,
+                    onTap: () => context.push('/delivery-orders'),
+                  ),
+                ),
+                Expanded(
+                  child: _buildActionCard(
+                    icon: Icons.bar_chart,
+                    label: 'Reports',
+                    color: Colors.teal,
+                    onTap: () => context.push('/reports'),
+                  ),
                 ),
               ],
             ),
@@ -271,39 +296,146 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+  Widget _buildSkeletonLoading() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const ShimmerLoading(width: double.infinity, height: 80, borderRadius: 16),
+          const SizedBox(height: 20),
+          GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 2,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: 1.4,
+            children: List.generate(4, (index) => const ShimmerLoading(
+              width: double.infinity,
+              height: 120,
+              borderRadius: 16,
+            )),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWelcomeCard() {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, color: color, size: 24),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              colorScheme.primary.withOpacity(0.08),
+              colorScheme.secondary.withOpacity(0.05),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: colorScheme.primaryContainer,
+                    child: Icon(
+                      Icons.person,
+                      color: colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _userName.isNotEmpty
+                              ? 'Welcome, $_userName!'
+                              : 'Welcome back!',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                    overflow: TextOverflow.ellipsis,
+                        const SizedBox(height: 2),
+                        Text(
+                          'Here\'s your business overview today.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.check_circle,
+                      color: Colors.green,
+                      size: 20,
+                    ),
                   ),
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  Widget _buildActionCard({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 24),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatNumber(dynamic value) {
+    if (value == null) return '0';
+    final number = num.tryParse(value.toString()) ?? 0;
+    final formatter = NumberFormat('#,###');
+    return formatter.format(number);
   }
 }

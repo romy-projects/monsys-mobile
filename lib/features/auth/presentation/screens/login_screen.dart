@@ -19,6 +19,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   String? _errorMessage;
+  bool _obscurePassword = true;
 
   @override
   void dispose() {
@@ -49,10 +50,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
       if (response.statusCode == 200) {
         final responseData = response.data;
-        
+
         // Laravel API wraps response in 'data' field
         final data = responseData['data'] ?? responseData;
-        
+
         // Save token and user data
         if (data['token'] != null) {
           await authStorage.saveToken(data['token']);
@@ -98,11 +99,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Logo/Title
-                    Icon(
-                      Icons.dashboard_outlined,
-                      size: 80,
-                      color: colorScheme.primary,
+                    // Logo/Title section
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer.withOpacity(0.3),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.dashboard_outlined,
+                        size: 60,
+                        color: colorScheme.primary,
+                      ),
                     ),
                     const SizedBox(height: 24),
                     Text(
@@ -131,11 +139,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         decoration: BoxDecoration(
                           color: colorScheme.errorContainer,
                           borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: colorScheme.error.withOpacity(0.3),
+                          ),
                         ),
-                        child: Text(
-                          _errorMessage!,
-                          style: TextStyle(color: colorScheme.onErrorContainer),
-                          textAlign: TextAlign.center,
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.error_outline,
+                              size: 20,
+                              color: colorScheme.onErrorContainer,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                _errorMessage!,
+                                style: TextStyle(color: colorScheme.onErrorContainer),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
 
@@ -163,11 +185,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     // Password field
                     TextFormField(
                       controller: _passwordController,
-                      obscureText: true,
+                      obscureText: _obscurePassword,
                       enabled: !_isLoading,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Password',
-                        prefixIcon: Icon(Icons.lock_outlined),
+                        prefixIcon: const Icon(Icons.lock_outlined),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _obscurePassword = !_obscurePassword;
+                            });
+                          },
+                        ),
                       ),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
@@ -182,18 +216,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     const SizedBox(height: 24),
 
                     // Login button
-                    ElevatedButton(
+                    FilledButton(
                       onPressed: _isLoading ? null : _login,
-                      style: ElevatedButton.styleFrom(
+                      style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
                       child: _isLoading
                           ? const SizedBox(
                               height: 20,
                               width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
                             )
-                          : const Text('Sign In'),
+                          : const Text(
+                              'Sign In',
+                              style: TextStyle(fontSize: 16),
+                            ),
                     ),
                   ],
                 ),
