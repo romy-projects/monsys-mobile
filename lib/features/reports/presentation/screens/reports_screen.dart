@@ -54,7 +54,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               color: theme.colorScheme.surface,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 4,
                   offset: const Offset(0, 2),
                 ),
@@ -139,22 +139,22 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         children: [
           const ShimmerLoading(width: 200, height: 24, borderRadius: 4),
           const SizedBox(height: 24),
-          ...List.generate(3, (index) => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
+          ...List.generate(3, (index) => const Padding(
+            padding: EdgeInsets.only(bottom: 12),
             child: Card(
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.all(16),
                 child: Row(
                   children: [
-                    const ShimmerLoading(width: 40, height: 40, borderRadius: 20),
-                    const SizedBox(width: 16),
+                    ShimmerLoading(width: 40, height: 40, borderRadius: 20),
+                    SizedBox(width: 16),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const ShimmerLoading(width: 120, height: 14, borderRadius: 4),
-                          const SizedBox(height: 8),
-                          const ShimmerLoading(width: 80, height: 20, borderRadius: 4),
+                          ShimmerLoading(width: 120, height: 14, borderRadius: 4),
+                          SizedBox(height: 8),
+                          ShimmerLoading(width: 80, height: 20, borderRadius: 4),
                         ],
                       ),
                     ),
@@ -233,7 +233,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
+                color: color.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon ?? Icons.analytics, color: color, size: 24),
@@ -332,7 +332,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                   leading: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.1),
+                      color: Colors.blue.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(Icons.inventory_2, color: Colors.blue),
@@ -660,7 +660,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                   leading: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: _getAgingColor(item['aging_days'] ?? 0).withOpacity(0.1),
+                      color: _getAgingColor(item['aging_days'] ?? 0).withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(Icons.account_balance, color: _getAgingColor(item['aging_days'] ?? 0)),

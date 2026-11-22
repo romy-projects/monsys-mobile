@@ -16,12 +16,12 @@ class StatusBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.3), width: 0.5),
+        border: Border.all(color: color.withValues(alpha: 0.3), width: 0.5),
       ),
       child: Text(
-        status.toUpperCase(),
+        status.replaceAll('_', ' ').toUpperCase(),
         style: TextStyle(
           color: color,
           fontSize: fontSize,
@@ -41,11 +41,20 @@ class StatusBadge extends StatelessWidget {
       case 'approved':
         return Colors.green;
       case 'in-transit':
+      case 'in_transit':
         return Colors.purple;
       case 'received':
+      case 'delivered':
+      case 'loaded':
         return Colors.teal;
       case 'cancelled':
         return Colors.red;
+      case 'on_transportir':
+        return Colors.deepPurple;
+      case 'pending_approval':
+        return Colors.orange;
+      case 'draft':
+        return Colors.grey;
       case 'active':
         return Colors.green;
       case 'inactive':
@@ -58,6 +67,18 @@ class StatusBadge extends StatelessWidget {
         return Colors.orange;
       case 'adjustment':
         return Colors.blue;
+      case 'debit':
+        return Colors.green;
+      case 'kredit':
+        return Colors.red;
+      case 'issued':
+        return Colors.blue;
+      case 'partial':
+        return Colors.orange;
+      case 'paid':
+        return Colors.teal;
+      case 'overdue':
+        return Colors.deepOrange;
       default:
         return Colors.grey;
     }

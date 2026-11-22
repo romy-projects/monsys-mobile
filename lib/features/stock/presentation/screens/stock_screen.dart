@@ -1,8 +1,10 @@
+import 'package:dio/dio.dart' show DioException;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:monsys_mobile/services/api/api_service.dart';
 import 'package:monsys_mobile/core/constants/api_constants.dart';
 import 'package:monsys_mobile/shared/widgets/widgets.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 class StockScreen extends ConsumerStatefulWidget {
@@ -22,12 +24,15 @@ class _StockScreenState extends ConsumerState<StockScreen>
   String? _errorMessage;
   int _selectedTab = 0;
 
-  // Filters
+  // Filters — cylinder types must match the panelx vocabulary (3kg/5.5kg/12kg/50kg)
   String _selectedCylinderType = 'all';
   String _selectedMutationType = 'all';
 
-  final List<String> _cylinderTypes = ['all', 'tube', 'crane', 'forklift'];
+  final List<String> _cylinderTypes = ['all', '3kg', '5.5kg', '12kg', '50kg'];
   final List<String> _mutationTypes = ['all', 'in', 'out', 'transfer', 'adjustment'];
+
+  // Golden Rule (GET /stock/is-closed): null = still loading / unavailable
+  bool? _isTodaySubmitted;
 
   @override
   void initState() {
@@ -35,6 +40,7 @@ class _StockScreenState extends ConsumerState<StockScreen>
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(_handleTabSelection);
     _loadStockItems();
+    _loadCloseStatus();
   }
 
   @override
@@ -164,6 +170,390 @@ class _StockScreenState extends ConsumerState<StockScreen>
     }
   }
 
+  // ── Golden Rule banner (GET /stock/is-closed) ────────────────
+
+  Future<void> _loadCloseStatus() async {
+    try {
+      final response = await ref
+          .read(apiServiceProvider)
+          .get(ApiConstants.stockIsClosed);
+      final data = response.data is Map ? response.data['data'] : null;
+      if (!mounted) return;
+      setState(() {
+        _isTodaySubmitted = data is Map ? data['is_submitted'] == true : null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isTodaySubmitted = null);
+    }
+  }
+
+  Widget _buildGoldenRuleBanner() {
+    final submitted = _isTodaySubmitted;
+    if (submitted == null) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final color = submitted ? Colors.green : Colors.orange;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: color.withValues(alpha: 0.12),
+      child: Row(
+        children: [
+          Icon(
+            submitted ? Icons.check_circle : Icons.warning_amber_rounded,
+            size: 18,
+            color: color,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              submitted
+                  ? "Today's stock close is submitted."
+                  : "Today's stock close is not submitted yet — required before creating orders (Golden Rule).",
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: color.withValues(alpha: 0.9),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          if (!submitted)
+            TextButton(
+              onPressed: _showPerformCloseDialog,
+              child: const Text('Close Now'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ── Write actions ────────────────────────────────────────────
+
+  void _showSnack(String message, {bool error = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      backgroundColor: error ? Colors.red : Colors.green,
+    ));
+  }
+
+  String? _messageFrom(Object? data) {
+    if (data is Map && data['message'] is String) {
+      return data['message'] as String;
+    }
+    return null;
+  }
+
+  // ── New mutation (POST /stock-mutations) ─────────────────────
+
+  Future<void> _showNewMutationDialog() async {
+    final formKey = GlobalKey<FormState>();
+    final quantityController = TextEditingController();
+    final referenceController = TextEditingController();
+    final notesController = TextEditingController();
+    var cylinderType = _cylinderTypes.length > 1 ? _cylinderTypes[1] : '3kg';
+    var mutationType = 'in';
+    var mutationDate = DateTime.now();
+
+    final payload = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('New Stock Mutation'),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    initialValue: cylinderType,
+                    decoration:
+                        const InputDecoration(labelText: 'Cylinder type'),
+                    items: [
+                      for (final t in _cylinderTypes.skip(1))
+                        DropdownMenuItem(value: t, child: Text(t)),
+                    ],
+                    onChanged: (v) =>
+                        setDialogState(() => cylinderType = v ?? '3kg'),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    initialValue: mutationType,
+                    decoration:
+                        const InputDecoration(labelText: 'Mutation type'),
+                    items: const [
+                      DropdownMenuItem(value: 'in', child: Text('In')),
+                      DropdownMenuItem(value: 'out', child: Text('Out')),
+                      DropdownMenuItem(
+                          value: 'transfer', child: Text('Transfer')),
+                      DropdownMenuItem(
+                          value: 'adjustment', child: Text('Adjustment')),
+                    ],
+                    onChanged: (v) =>
+                        setDialogState(() => mutationType = v ?? 'in'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: quantityController,
+                    keyboardType: TextInputType.number,
+                    decoration:
+                        const InputDecoration(labelText: 'Quantity (min 1)'),
+                    validator: (v) => (int.tryParse(v ?? '') ?? 0) < 1
+                        ? 'Quantity must be at least 1'
+                        : null,
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Date: ${DateFormat('dd MMM yyyy').format(mutationDate)}',
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.calendar_today, size: 18),
+                        onPressed: () async {
+                          final picked = await showDatePicker(
+                            context: ctx,
+                            initialDate: mutationDate,
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime.now(),
+                          );
+                          if (picked != null) {
+                            setDialogState(() => mutationDate = picked);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                  TextFormField(
+                    controller: referenceController,
+                    decoration: const InputDecoration(
+                        labelText: 'Reference no. (optional)'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: notesController,
+                    decoration: const InputDecoration(
+                        labelText: 'Notes (optional)'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (!(formKey.currentState?.validate() ?? false)) return;
+                Navigator.pop(ctx, <String, dynamic>{
+                  'cylinder_type': cylinderType,
+                  'mutation_type': mutationType,
+                  'quantity': int.parse(quantityController.text.trim()),
+                  'mutation_date':
+                      DateFormat('yyyy-MM-dd').format(mutationDate),
+                  if (referenceController.text.trim().isNotEmpty)
+                    'reference_no': referenceController.text.trim(),
+                  if (notesController.text.trim().isNotEmpty)
+                    'notes': notesController.text.trim(),
+                });
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    quantityController.dispose();
+    referenceController.dispose();
+    notesController.dispose();
+
+    if (payload != null) await _submitMutation(payload);
+  }
+
+  Future<void> _submitMutation(Map<String, dynamic> payload) async {
+    try {
+      final response = await ref
+          .read(apiServiceProvider)
+          .post(ApiConstants.stockMutations, data: payload);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        _showSnack(_messageFrom(response.data) ?? 'Mutation created');
+        _loadMutations();
+        _loadStockItems();
+      } else {
+        _showSnack(_messageFrom(response.data) ?? 'Failed to create mutation',
+            error: true);
+      }
+    } on DioException catch (e) {
+      _showSnack(_messageFrom(e.response?.data) ?? 'Failed to create mutation',
+          error: true);
+    } catch (_) {
+      _showSnack('Failed to create mutation', error: true);
+    }
+  }
+
+  // ── Perform close (POST /stock/close) ────────────────────────
+  // The API updateOrCreate's per (branch, close_date, cylinder_type),
+  // so a close is submitted per cylinder type.
+
+  Future<void> _showPerformCloseDialog() async {
+    final formKey = GlobalKey<FormState>();
+    final fullController = TextEditingController();
+    final emptyController = TextEditingController();
+    final damagedController = TextEditingController();
+    final notesController = TextEditingController();
+    var cylinderType = _cylinderTypes.length > 1 ? _cylinderTypes[1] : '3kg';
+
+    // Prefill quantities from the current stock snapshot when available.
+    void prefill(String type) {
+      final matches = _stockItems
+          .where((item) => item is Map && item['cylinder_type'] == type)
+          .toList();
+      if (matches.isNotEmpty) {
+        final item = matches.first as Map;
+        fullController.text = '${item['qty_full'] ?? 0}';
+        emptyController.text = '${item['qty_empty'] ?? 0}';
+        damagedController.text = '${item['qty_damaged'] ?? 0}';
+      } else {
+        fullController.text = '0';
+        emptyController.text = '0';
+        damagedController.text = '0';
+      }
+    }
+
+    prefill(cylinderType);
+
+    final payload = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Perform Stock Close'),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    initialValue: cylinderType,
+                    decoration: const InputDecoration(
+                        labelText: 'Cylinder type (close is per type)'),
+                    items: [
+                      for (final t in _cylinderTypes.skip(1))
+                        DropdownMenuItem(value: t, child: Text(t)),
+                    ],
+                    onChanged: (v) {
+                      setDialogState(() => cylinderType = v ?? '3kg');
+                      prefill(cylinderType);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: fullController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Qty full'),
+                    validator: (v) => int.tryParse(v ?? '') == null
+                        ? 'Enter a whole number'
+                        : null,
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: emptyController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Qty empty'),
+                    validator: (v) => int.tryParse(v ?? '') == null
+                        ? 'Enter a whole number'
+                        : null,
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: damagedController,
+                    keyboardType: TextInputType.number,
+                    decoration:
+                        const InputDecoration(labelText: 'Qty damaged'),
+                    validator: (v) => int.tryParse(v ?? '') == null
+                        ? 'Enter a whole number'
+                        : null,
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Date: ${DateFormat('dd MMM yyyy').format(DateTime.now())}',
+                      style: Theme.of(ctx).textTheme.bodySmall,
+                    ),
+                  ),
+                  TextFormField(
+                    controller: notesController,
+                    decoration: const InputDecoration(
+                        labelText: 'Notes (optional)'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (!(formKey.currentState?.validate() ?? false)) return;
+                Navigator.pop(ctx, <String, dynamic>{
+                  'cylinder_type': cylinderType,
+                  'close_date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+                  'qty_full': int.parse(fullController.text.trim()),
+                  'qty_empty': int.parse(emptyController.text.trim()),
+                  'qty_damaged': int.parse(damagedController.text.trim()),
+                  if (notesController.text.trim().isNotEmpty)
+                    'notes': notesController.text.trim(),
+                });
+              },
+              child: const Text('Submit Close'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    fullController.dispose();
+    emptyController.dispose();
+    damagedController.dispose();
+    notesController.dispose();
+
+    if (payload != null) await _submitClose(payload);
+  }
+
+  Future<void> _submitClose(Map<String, dynamic> payload) async {
+    try {
+      final response = await ref
+          .read(apiServiceProvider)
+          .post(ApiConstants.stockClose, data: payload);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        _showSnack(
+            _messageFrom(response.data) ?? "Today's stock close submitted");
+        _loadCloseStatus();
+        _loadCloses();
+        _loadStockItems();
+      } else {
+        _showSnack(
+            _messageFrom(response.data) ?? 'Failed to submit stock close',
+            error: true);
+      }
+    } on DioException catch (e) {
+      _showSnack(
+          _messageFrom(e.response?.data) ?? 'Failed to submit stock close',
+          error: true);
+    } catch (_) {
+      _showSnack('Failed to submit stock close', error: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -171,8 +561,24 @@ class _StockScreenState extends ConsumerState<StockScreen>
         title: const Text('Stock Management'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.add_circle_outline),
+            tooltip: 'New Mutation',
+            onPressed: _showNewMutationDialog,
+          ),
+          IconButton(
+            icon: const Icon(Icons.task_alt),
+            tooltip: 'Perform Stock Close',
+            onPressed: _showPerformCloseDialog,
+          ),
+          IconButton(
+            icon: const Icon(Icons.sync_alt),
+            tooltip: 'Tabung Sirkulasi',
+            onPressed: () => context.push('/cylinder-circulations'),
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
+              _loadCloseStatus();
               if (_selectedTab == 0) {
                 _loadStockItems();
               } else if (_selectedTab == 1) {
@@ -183,17 +589,15 @@ class _StockScreenState extends ConsumerState<StockScreen>
             },
           ),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'Stock Items'),
-            Tab(text: 'Mutations'),
-            Tab(text: 'Closes'),
-          ],
-        ),
       ),
       body: Column(
         children: [
+          AppSegmentedTabs(
+            labels: const ['Stock Items', 'Mutations', 'Closes'],
+            selectedIndex: _tabController.index,
+            onChanged: (index) => _tabController.animateTo(index),
+          ),
+          _buildGoldenRuleBanner(),
           // Filter bar
           if (_selectedTab == 0 || _selectedTab == 1) _buildFilterBar(),
           Expanded(
@@ -310,27 +714,27 @@ class _StockScreenState extends ConsumerState<StockScreen>
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: 6,
-      itemBuilder: (context, index) => Padding(
-        padding: const EdgeInsets.only(bottom: 12),
+      itemBuilder: (context, index) => const Padding(
+        padding: EdgeInsets.only(bottom: 12),
         child: Card(
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(16),
             child: Row(
               children: [
-                const ShimmerLoading(width: 40, height: 40, borderRadius: 20),
-                const SizedBox(width: 12),
+                ShimmerLoading(width: 40, height: 40, borderRadius: 20),
+                SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const ShimmerLoading(width: 120, height: 14, borderRadius: 4),
-                      const SizedBox(height: 8),
-                      const ShimmerLoading(width: 80, height: 12, borderRadius: 4),
+                      ShimmerLoading(width: 120, height: 14, borderRadius: 4),
+                      SizedBox(height: 8),
+                      ShimmerLoading(width: 80, height: 12, borderRadius: 4),
                     ],
                   ),
                 ),
-                const SizedBox(width: 12),
-                const ShimmerLoading(width: 60, height: 20, borderRadius: 4),
+                SizedBox(width: 12),
+                ShimmerLoading(width: 60, height: 20, borderRadius: 4),
               ],
             ),
           ),
@@ -367,7 +771,7 @@ class _StockScreenState extends ConsumerState<StockScreen>
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.1),
+                      color: Colors.blue.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Icon(Icons.inventory_2, color: Colors.blue),
@@ -470,7 +874,7 @@ class _StockScreenState extends ConsumerState<StockScreen>
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: typeColor.withOpacity(0.1),
+                          color: typeColor.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Icon(Icons.swap_horiz, color: typeColor, size: 20),
@@ -567,7 +971,7 @@ class _StockScreenState extends ConsumerState<StockScreen>
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.1),
+                          color: Colors.orange.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Icon(Icons.close, color: Colors.orange, size: 20),
@@ -585,7 +989,7 @@ class _StockScreenState extends ConsumerState<StockScreen>
                   ),
                   const SizedBox(height: 12),
                   _buildCloseInfoRow('Date', date),
-                  _buildCloseInfoRow('Branch', close['branch']?['name'] ?? 'N/A'),
+                  _buildCloseInfoRow('Branch', close['branch_name'] ?? 'N/A'),
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -637,7 +1041,7 @@ class _StockScreenState extends ConsumerState<StockScreen>
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Column(
@@ -653,7 +1057,7 @@ class _StockScreenState extends ConsumerState<StockScreen>
             Text(
               label,
               style: TextStyle(
-                color: color.withOpacity(0.7),
+                color: color.withValues(alpha: 0.7),
                 fontSize: 11,
               ),
             ),
